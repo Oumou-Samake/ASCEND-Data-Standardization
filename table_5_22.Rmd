@@ -1,0 +1,190 @@
+---
+title: "table_5_22"
+output: html_document
+date: "2026-05-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library("duckdb")
+library("dplyr")
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+```
+```{r}
+library("tidyr", "ggplot2")
+pacman::p_load(ggplot2 , tidyr)
+# example
+con_tbl <- tbl(con, "visits_core")# %>% 
+  #select(age, visit_id, starts_with("Ddx"))
+
+con_tbl
+```
+
+```{r}
+pacman::p_load(gtsummary)
+con_shortened <- con_tbl %>% 
+   pivot_longer(
+    cols = starts_with("Ddx"),
+    names_to = "diagnosis_type",
+    values_to = "diagnosis_1"
+  ) %>%
+   filter(!is.na(diagnosis)) %>%
+collect()
+con_shortened
+```
+
+```{r}
+con_shortened %>% 
+  group_by(diagnosis_type) %>% 
+  summarise(n = n())
+
+```
+
+
+```{r}
+con_demo <- tbl(con, "visits_core") %>% 
+  select(visit_id, starts_with("bigchris")) %>%
+   pivot_longer(
+    cols = starts_with("bigchris"),
+    names_to = "demographics",
+    values_to = "results") %>%
+  filter(!is.na(results)) %>% 
+collect()
+
+con_demo
+```
+
+```{r}
+ggplot(con_shortened, aes(x = diagnosis , fill = diagnosis)) +
+  geom_bar() +
+  facet_wrap(~ diagnosis_type)
+```
+
+```{r}
+
+ggplot(con_shortened, aes(x = age, fill = diagnosis )) +
+  geom_bar() +
+  facet_wrap(~ diagnosis_type)
+```
+
+```{r}
+ggplot(con_shortened, aes(x = diagnosis, y = age, fill = diagnosis)) +
+  geom_boxplot() +
+  facet_wrap(~ diagnosis_type)
+  
+```
+
+```{r}
+tbl(con, "visits_core") %>% select(ptid, visit_id, age, diagnosis) %>% collect %>%  View
+```
+
+
+```{r}
+age_tbl <- tbl(con, "visits_core") %>% select(ptid, visit_id, contains("age")) %>%collect 
+colSums(is.na(age_tbl))
+
+age_tbl%>% View
+```
+# we are taking the age variable, I will be extracting ethinicity and/or race, ptid, visit_id, diagnosis, gender, original_visit_type, drugid_1, csa_id
+```{r}
+drug_con <-tbl(con, "visits_core") %>% select(ptid, visit_id, contains("drug")) %>% collect
+
+colSums(is.na(drug_con))
+
+```
+### might leave out drugid
+```{r}
+visit_con <-tbl(con, "visits_core") %>% select(ptid, visit_id, contains("visit")) %>% collect
+
+colSums(is.na(visit_con))
+```
+
+# visit_date might be worth while 
+
+```{r}
+ethnicity_con <-tbl(con, "visits_core") %>% select(ptid, visit_id, contains("eth")) %>% collect 
+
+colSums(is.na(ethnicity_con))
+ethnicity_con %>% View
+```
+
+# variables are all written differently
+
+```{r}
+demographics_tbl <- tbl(con, "visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date) %>%
+  collect 
+```
+```{r}
+colSums(is.na(demographics_tbl))
+```
+
+
+```{r}
+library(stringr)
+
+shape <- demographics_tbl$visit_id %>%
+  str_replace_all("[0-9]", "9") %>%
+  str_replace_all("[A-Za-z]", "A")
+
+
+
+basic <- data.frame(demographics_tbl$visit_id, shape)
+
+```
+
+```{r}
+table(basic$shape)
+```
+
+```{r}
+#even more simple 
+
+shape_1 <- demographics_tbl$visit_id %>%
+  str_replace_all("[[:alnum:]]", "9") 
+
+
+
+basic_1 <- data.frame(demographics_tbl$visit_id, shape_1)
+basic_1$ptid <- demographics_tbl$ptid
+basic_1$csa <- demographics_tbl$csa_id
+table(basic_1$shape_1)
+```
+
+```{r}
+basic_1 %>% filter(shape_1 == "9999999999-9999999999999") %>% unique
+```
+
+
+#attempt at making new id val
+
+```{r} 
+basic_1$new_id<- str_remove(basic_1$demographics_tbl.visit_id, "-.*")
+#frequncy table code
+basic_1 %>% group_by(new_id) %>% summarize(n = n()) %>% ungroup() %>% group_by(n) %>% summarise(count = n())
+#histogram
+basic_1 %>% group_by(new_id) %>% summarize(n = n()) %>% ggplot(aes(x= n))+
+  geom_histogram()
+```
+
+```{r}
+tbl(con, "visits_core") %>% select(ptid, visit_id, contains("sex")) %>%collect %>% unique
+#%>% unique()
+```
+
+```{r}
+demographics_tbl %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id)
+```
+
+
