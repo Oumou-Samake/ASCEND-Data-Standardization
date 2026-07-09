@@ -1,0 +1,234 @@
+---
+title: "MOCA"
+output: html_document
+date: "2026-06-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+```{r}
+### set up assessments
+tbl_diag <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select(contains("moca"), visit_id, -moca_total_1, -ends_with("_1") ) %>% 
+  collect
+### set up demographics
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+### get name of assessments
+diag_name<- data.frame(colnames(tbl_diag))
+```
+###moca clean up
+```{r}
+#1260
+moca_a <- tbl_diag %>% 
+  select(moca_abstraction,moca_attention, moca_language, moca_memory, moca_naming, moca_orientation, moca_recall, moca_source, moca_total, moca_visuospatial, 
+         visit_id) %>% 
+  drop_na()
+
+#93
+moca_l <- tbl_diag %>% 
+  select(-c(moca_abstraction,moca_attention, moca_language, moca_memory, moca_naming, moca_orientation, moca_recall, moca_source, moca_total, moca_visuospatial), visit_id ) %>% 
+  filter_out(if_all(starts_with("moca"), is.na))
+
+
+```
+
+
+
+
+
+###demographics clean up
+```{r}
+# set up/ data cleaning from exp_diag
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age)) %>% 
+  select(-c(ptid, csa_id, shape, shape_num))
+```
+### checking work
+```{r}
+sim <- intersect( moca_l$visit_id, moca_a$visit_id)
+
+sim <- c(sim[0:11])
+moca_l[moca_l$visit_id %in% sim,] %>% View
+```
+
+
+```{r}
+check_a<-moca_a %>% select(-c(visit_id, moca_total)) 
+lapply(check_a, unique)
+```
+
+```{r}
+check_l <-moca_l %>% select(-c(visit_id)) 
+lapply(check_l, unique)
+```
+
+
+### rm "88 = Not applicable", and make numeric
+```{r}
+moca_l <- moca_l %>%
+  mutate(mocarecc = ifelse(mocarecc ==  "88 = Not applicable", NA, mocarecc),
+         mocarecr = ifelse(mocarecr ==  "88 = Not applicable", NA, mocarecr))
+```
+
+```{r}
+moca_l_compute <- moca_l %>% 
+  select(-c(mocareas, mocaloc, mocalan, mocavis, mocahear)) %>% 
+  mutate(across(-visit_id, ~ as.numeric(.)))
+```
+
+### compare 
+```{r}
+colSums(is.na(moca_l))
+colSums(is.na(moca_l_compute))
+```
+
+### adding moca scores
+```{r}
+moca_l_specialized <- moca_l_compute %>% 
+  mutate(moca_abstraction = mocaabst, 
+         moca_attention = rowSums(across(c(mocadigi, mocalett, mocaser7)),  na.rm = T),
+         moca_language = rowSums(across(c(mocarepe,  mocaflue)),  na.rm = T),
+         moca_memory = mocaregi,
+         moca_naming = rowSums(across(mocanami),  na.rm = T),
+         moca_orientation = rowSums(across(c(mocaordt, mocaormo, mocaoryr, mocaordy, mocaorpl, mocaorct)),  na.rm = T),
+         moca_recall = rowSums(across(c(mocarecn, mocarecc, mocarecr)),  na.rm = T), 
+         moca_source = "small" ,
+         moca_total = rowSums(across( c(mocatrai, mocacube, mocacloc, mocaclon, mocacloh,  mocarecn, mocarecc, mocarecr, mocaordt,
+           mocaormo, mocaoryr, mocaordy, mocaorpl, mocaorct, mocanami, mocarepe, mocaflue, mocadigi, mocalett, mocaser7)),  na.rm = T), 
+         moca_visuospatial = rowSums(across(c(mocatrai, mocacube, mocacloc, mocaclon, mocacloh)),  na.rm = T), 
+         visit_id = visit_id
+  ) 
+moca_l_specialized <- moca_l_specialized%>% 
+  select(c(moca_abstraction, moca_attention, moca_language, moca_memory, moca_naming, moca_orientation, moca_recall, moca_source, moca_total,
+           moca_visuospatial, visit_id))
+```
+
+```{r}
+colSums(is.na(moca_l_specialized))
+```
+
+```{r}
+lapply(moca_l_specialized, unique)
+```
+
+
+###combining tables 
+```{r}
+moca_a_demo <- rbind(moca_a, moca_l_specialized)
+
+moca_total <- inner_join(moca_a_demo, demographics, by = "visit_id")%>% 
+  select(-c(diagnosis, medicaid)) %>% 
+  mutate(
+    health_status = case_when(
+      further_diag == "HC" ~ "HC",
+      further_diag =="AD" ~ "AD",
+      .default = "other cases")
+)
+moca_total <- moca_total %>%
+  mutate(across(-c(visit_id, moca_source, visit_type, visit_date, new_id, further_diag, health_status, eth, race, gender), ~ as.numeric(.)))
+  
+```
+```{r}
+lapply(moca_total, unique)
+```
+
+### demographics
+```{r}
+no_id <- moca_total %>% 
+  select(-c(visit_id,visit_date, num_diagnosis, new_id)) 
+  
+```
+
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = further_diag,
+  type = list(where(is.numeric) ~ "continuous"),
+  list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age_group = "Age"), 
+            list(gender = "Gender"), 
+            list(medicaid = "Medicaid")),
+  missing_text = "Missing Values") %>% 
+  as_gt()
+
+table_1
+```
+```{r}
+gt::gtsave(table_1, filename = "moca_demo.html")
+```
+
+### total v source v health
+```{r}
+no_id %>% ggplot(aes(x = moca_total, fill = moca_source)) +
+  geom_bar(stat = "count")+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(vars(health_status), scales = "free") 
+```
+
+### contingency tables 
+```{r}
+vars <- setdiff(names(no_id), "moca_source")
+tables <- lapply(vars, function(v) {
+  table(no_id[[v]])
+})
+
+tables
+```
+### correlation matrix:
+
+```{r}
+
+correlation <- no_id %>% 
+  select(-c(race, eth, moca_source, visit_type, further_diag, health_status, gender))
+no_id.cor = cor(correlation , use="complete.obs", method = c("spearman"))
+
+corrplot(no_id.cor)
+```
+```{r}
+lapply(moca_total, unique)
+```
+
+```{r}
+no_id.cor
+```
+
+### subgroup analysis
+
+
+```{r}
+model <- glm(health_status ~ moca_memory,
+             data = no_id,
+             family = binomial)
+```
+

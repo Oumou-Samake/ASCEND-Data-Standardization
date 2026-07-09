@@ -1,0 +1,155 @@
+---
+title: "gad_analysis"
+output: html_document
+date: "2026-07-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+```{r}
+### set up assessments
+tbl_diag <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select(contains("gad"), visit_id ) %>% 
+  collect
+### set up demographics
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+### get name of assessments
+diag_name<- data.frame(colnames(tbl_diag))
+```
+
+###demographics clean up
+```{r}
+# set up/ data cleaning from exp_diag
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age)) %>% 
+  select(-c(ptid, csa_id, shape, shape_num))
+```
+
+### analyze 
+```{r}
+colSums(is.na(tbl_diag)) #most of these are empty
+```
+### take out na rows
+```{r}
+gad_diag <- tbl_diag %>% 
+  filter_out(if_all(starts_with("gad"), is.na)) %>% 
+  select(c(visit_id,gad_source, gad_total, gadanx, gadfear, gadirrit, gadnorelax, gadnostop, gadrestless, gadworr))
+```
+
+###check again
+```{r}
+colSums(is.na(gad_diag)) #most of these are empty
+```
+
+```{r}
+lapply(gad_diag, unique)
+```
+
+### fill in gad_total
+```{r}
+gad_compute <- gad_diag%>% 
+  mutate(across(-c(visit_id,gad_source), ~ as.numeric(.)))
+```
+
+```{r}
+lapply(gad_compute, unique)
+```
+
+```{r}
+gad_compute_total <- gad_compute %>% 
+  mutate(gad_total = rowSums(across(c(gadanx, gadfear, gadirrit, gadnorelax, gadnostop, gadrestless, gadworr)),  na.rm = T),
+    ) 
+
+gad_compute_total <- gad_compute_total %>% 
+  mutate(status = if_else(
+      complete.cases(.),
+      "Complete",
+      "Incomplete"
+    ))
+```
+
+### innerjoin rows 
+```{r}
+gad_table <-inner_join(gad_compute_total, demographics, by = "visit_id") 
+```
+
+```{r}
+colSums(is.na(gad_table)) #most of these are empty
+```
+
+### summary table
+```{r}
+no_id <- gad_table %>% 
+  select(-c(visit_id,visit_date, num_diagnosis, diagnosis, new_id))
+```
+
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = further_diag,
+  type = list(where(is.numeric) ~ "continuous"),
+  list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age_group = "Age"), 
+            list(gender = "Gender"), 
+            list(medicaid = "Medicaid")),
+  missing_text = "Missing Values") %>% 
+  as_gt()
+
+gt::gtsave(table_1, filename = "gad_demo.png")
+```
+
+```{r}
+table_1
+```
+
+
+### figures
+```{r}
+gad_table %>% ggplot(aes(x = gad_total, fill = status )) +
+  geom_bar(stat = "count")+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(vars(further_diag), scales = "free") 
+```
+
+```{r}
+no_id %>% 
+  sumtable(group = "status", group.test = T)
+```
+
+```{r}
+
+```
+
+
+

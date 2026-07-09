@@ -1,0 +1,77 @@
+---
+title: "visit_join_columns"
+output: html_document
+date: "2026-06-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+```
+
+### set up assessments
+```{r}
+tbl_diag <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  collect
+### set up demographics
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+### get name of assessments
+diag_name<- data.frame(colnames(tbl_diag))
+```
+
+###clean up demographics
+```{r}
+# set up/ data cleaning from exp_diag
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age))
+```
+
+
+
+
+### clean up fluency
+```{r}
+fluency_tbl <- tbl_diag%>% 
+  select(visit_id, which_tests_in_baseline_2_Category_fluency_animals, contains('catfluency'))%>%
+  collect
+```
+
+```{r}
+colSums(is.na(fluency_tbl))
+#chosing catfluencydate, catfluency60, catfluencydate_status,  catfluency30 
+```
+
+
+### add catg and other exams were theres the same 65 paricipants 
+```{r}
+test_not_cat
+large_inner <- inner_join(tbl_diag, test_set, by = "visit_id")
+  
+  
+  
+large_inner[ , colSums(is.na(large_inner))==0]
+```
+
+
+
+

@@ -1,0 +1,244 @@
+---
+title: "test_exp"
+output: html_document
+date: "2026-06-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+```{r}
+### set up assessments
+tbl_diag <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select(contains("fluency"), visit_id) %>% 
+  collect
+### set up demographics
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+### get name of assessments
+diag_name<- data.frame(colnames(tbl_diag))
+```
+### clean up fluency
+```{r}
+fluency_tbl <- tbl_diag%>% 
+  select(visit_id, which_tests_in_baseline_2_Category_fluency_animals, contains('catfluency'))%>%
+  collect
+```
+
+```{r}
+colSums(is.na(fluency_tbl))
+#chosing catfluencydate, catfluency60, catfluencydate_status,  catfluency30 
+```
+
+
+```{r}
+fluency_cleaned <- fluency_tbl %>% 
+  extract_unique_id(visit_id) %>% 
+  select(-c(contains('catfluencyg'), contains('shape'))) %>% 
+  drop_na()
+  
+#65 patients now   
+  
+```
+
+###clean up demographics
+```{r}
+# set up/ data cleaning from exp_diag
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age))
+```
+
+###Figure 1 setup (changeable)
+```{r}
+tab_1 <- demographics %>% 
+  select(-c(ptid, visit_id, visit_type, visit_date, csa_id, new_id, shape, shape_num)) %>%
+  mutate(
+   age_group = case_when(
+      as.integer(age) >= 0  & as.integer(age) <= 17 ~ "0-17",
+      as.integer(age) >= 18 & as.integer(age) <= 34 ~ "18-34",
+      as.integer(age) >= 35 & as.integer(age) <= 49 ~ "35-49",
+      as.integer(age) >= 50 & as.integer(age) <= 64 ~ "50-64",
+      as.integer(age) >= 65 & as.integer(age) <= 79 ~ "65-79",
+      as.integer(age) >= 80 & as.integer(age) <= 94 ~ "80-94",
+      as.integer(age) >= 95  ~ "95+",
+      .default =  NA
+  ))
+```
+
+```{r}
+further_tab1 <- tab_1 %>% 
+select(-c(age, diagnosis, num_diagnosis)) 
+```
+
+```{r}
+# table 1 for paper #race 
+table_1 <- tbl_summary(
+  further_tab1,
+  by = further_diag,
+  type = all_dichotomous() ~ "categorical",
+  statistic = all_categorical() ~ "{n} ({p}%)",
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age_group = "Age"), 
+            list(gender = "Gender"), 
+            list(medicaid = "Medicaid")),
+  missing_text = "Missing Values") %>% 
+  as_gt()
+
+gt::gtsave(table_1, filename = "demo_table.png")
+```
+### set up fluency
+
+```{r}
+fluency_tbl <- tbl_diag %>%
+  select(-starts_with("extract")) %>%
+  group_by(ffluency30) %>% 
+  extract_unique_id(visit_id) %>% 
+  summarise(n = n())
+
+fluency_tbl
+```
+
+
+
+### innerjoin demographics and fluency (rm rows from test_set here)
+```{r}
+test_set <-inner_join(fluency_cleaned, demographics, by = "visit_id") %>% 
+  select(-c(contains('shape'), ptid, csa_id, new_id.y, visit_date)) #%>%  #medicaid would rm too many
+  #drop_na()
+
+###225 entries ??? i messed up it duplicated entries and idk how
+```
+
+### table 2 attempt (inner join stats) 
+```{r}
+figure_2_data <- test_set %>% 
+  select(c(race, eth, age, gender, medicaid, catfluencydate_status, further_diag, new_id.x, visit_id)) %>% 
+  mutate(
+    healthy_or_not = case_when(
+      further_diag == "HC" ~ "HC",
+      .default = "cases")
+)
+```
+
+```{r}
+table_2 <- tbl_summary(
+  figure_2_data,
+  by = healthy_or_not,
+  include = c(race, eth, age, gender, medicaid, catfluencydate_status),
+  type = all_dichotomous() ~ "categorical",
+  statistic = all_categorical() ~ "{n} ({p}%)",
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age = "Age"), 
+            list(gender = "Gender"), 
+            list(catfluencydate_status = "Test Status"),
+            list(further_diag = "Diagnosis")),
+            missing_text = "Missing Values"
+) %>% 
+  as_gt()
+gt::gtsave(table_2, "inner_demo.png" )
+
+
+# gt save and send  to and  chage gender
+
+```
+
+
+### figure 2 attempt  (consort diagram)
+
+```{r}
+pacman::p_load(grid, consort, patchwork)
+
+set_consort_defaults(txt_gp = gpar(cex = 0.8), parse_markup = TRUE)
+
+g <- add_box(txt = "**Visit completed** (n=3593)") |>
+  add_side_box(txt = "Excluded^{1} (3528))") |>
+  add_box(txt = "__Visits with Categorical Fluency Data__ (n=65)") |>
+  add_split(txt = c("*HC* (n=34)", "*AD* (n=17)", "*MCI* (n = 5)",  "*other* (n = 9)"))
+  #add_box(txt = c("Analysed (n=128)", "Analysed (n=135)")) |>
+  #add_label_box(txt = c("1" = "Screening", "3" = "Randomisation"))
+  
+plot(g)
+```
+
+
+###Figure 3 how many ids had how many appointments
+```{r}
+figure_2_data %>% ggplot(aes(x = new_id.x, fill = catfluencydate_status )) +
+  geom_bar(stat = "count")+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(vars(healthy_or_not), scales = "free") # add scale free
+  
+```
+
+### Table 3 Healthy controls v test average scores 
+```{r}
+figure_2_data %>% 
+  sumtable(group = "healthy_or_not",group.test = T)
+  
+```
+data set creation 
+```{r}
+tab_3_data <- test_set %>% 
+  select(c(catfluencydate_status, catfluency60, catfluency30, further_diag, visit_id, new_id.x) )%>% 
+  mutate(
+    healthy_or_not = case_when(
+      further_diag == "HC" ~ "HC",
+      .default = "test"))
+
+tab_3_data %>% select(-further_diag) %>% sumtable(group = "healthy_or_not",group.test = T)
+  
+```
+
+
+### figure 4 plotting every column against each other
+```{r}
+
+figure_4_data <-  figure_2_data %>% 
+  mutate(
+   age_group = case_when(
+      as.integer(age) >= 0  & as.integer(age) <= 17 ~ "0-17",
+      as.integer(age) >= 18 & as.integer(age) <= 34 ~ "18-34",
+      as.integer(age) >= 35 & as.integer(age) <= 49 ~ "35-49",
+      as.integer(age) >= 50 & as.integer(age) <= 64 ~ "50-64",
+      as.integer(age) >= 65 & as.integer(age) <= 79 ~ "65-79",
+      as.integer(age) >= 80 & as.integer(age) <= 94 ~ "80-94",
+      as.integer(age) >= 95  ~ "95+",
+      .default =  NA
+  ))
+  
+ggpairs(
+  figure_4_data %>% select(-new_id.x , -age, -visit_id),
+  cardinality_threshold = 22,
+  aes(color = healthy_or_not),
+  upper = list(continuous = wrap("cor")),
+  lower = list(continuous = wrap("points", alpha = 0.3))
+)
+```
+
+
