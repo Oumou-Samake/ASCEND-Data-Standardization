@@ -1,0 +1,190 @@
+---
+title: "prelim_diarization"
+output: html_document
+date: "2026-08-07"
+---
+aim ---> find out the split between diarization and how that affect the feature counts (could not be completed as we could not identify patients from provoders )
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+### split none 
+```{r}
+none_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Rno')), visit_id) %>% 
+  collect
+  
+```
+
+```{r}
+none_data <- none_data %>% 
+  select_if(function(x) !all(is.na(x))) %>% 
+  filter_out(if_all(-visit_id, is.na))
+```
+
+### split gold <- no gold standard analysis
+```{r}
+gold_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Rgs')), visit_id) %>% 
+  collect
+  
+```
+
+```{r}
+gs_data <- gold_data %>% 
+  select_if(function(x) !all(is.na(x))) %>% 
+  filter_out(if_all(-visit_id, is.na))
+```
+
+### split pyannote
+```{r}
+pyannote_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Rpa')), visit_id) %>% 
+  collect
+  
+```
+
+```{r}
+pyannote_data <- pyannote_data %>% 
+  select_if(function(x) !all(is.na(x))) %>% 
+  filter_out(if_all(-visit_id, is.na))
+```
+
+
+### split DiarizationLM - no DiarizationLM analysis
+```{r}
+lm_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Rdl')), visit_id) %>% 
+  collect
+  
+```
+
+```{r}
+lm_data <- lm_data %>% 
+  select_if(function(x) !all(is.na(x))) %>% 
+  filter_out(if_all(-visit_id, is.na))
+```
+
+
+### get middle names 
+
+```{r}
+none_assessment_values <- none_data %>% 
+  pivot_longer(!visit_id, names_to = "assessment", values_to = "score") %>% 
+  extract(
+    col = assessment,
+    into = c("first", "middle", "last"),
+    regex = "^([^_]+)_(.*)_([^_]+)$"
+  ) %>% 
+  select(middle) %>% 
+  unique()
+
+```
+
+
+```{r}
+positions <- data.frame(none_assessment_values$middle)
+```
+
+
+### put all middle names into columns to reduce width --> spagetti codeee 
+```{r}
+positions <- none_assessment_values$middle
+
+pattern <- paste0(
+  ".*_(",
+  paste(positions, collapse = "|"),
+  ")_.*"
+)
+
+none_condensed <- none_data %>%
+  mutate(across(where(is.character), ~ na_if(.x, "NA"))) %>%
+  pivot_longer(
+    cols = matches(pattern),
+    names_to = "position",
+    names_pattern = pattern,
+    values_to = "value",
+    values_drop_na = TRUE
+  ) %>%
+  group_by(visit_id, position) %>%
+  summarise(
+    value = list(as.double(value)),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = position,
+    values_from = value
+  ) %>%
+  mutate(
+    across(
+      where(is.list),
+      ~ lapply(.x, function(x) {
+        if (is.null(x) || length(x) == 0) NA_real_ else x
+      })
+    )
+  )
+
+```
+
+
+### extract only the rows with lists in them <- 116
+```{r}
+position_cols <- intersect(positions, names(none_condensed))
+
+none_two_or_more_rows <- none_condensed %>%
+  filter(if_any(
+    all_of(position_cols),
+    ~ lengths(.x) > 1
+  )) %>% 
+  select(where(~ !all(is.na(.x)))) %>% 
+  select(where(~ !all(.x == "NULL")))
+  
+```
+
+### extract the rows with only 1 input
+```{r}
+only_one_none <- none_condensed %>%
+  filter(if_any(
+    all_of(position_cols),
+    ~ all(lengths(.x) == 1)
+  )) %>% 
+  select(where(~ !all(is.na(.x)))) %>% 
+  select(
+    where(~ !is.character(.x) )
+  )
+
+visit_one_none <- only_one_none %>% 
+  select(visit_id)
+
+visit_two_or_more_rows <- none_two_or_more_rows%>% 
+  select(visit_id)
+
+```
+
+### theres a total of  286 participants  whats being doubled 
+```{r}
+setdiff(visit_one_none, visit_two_or_more_rows  )
+```
+
+ 
+### theres a total of  286 participants  whats being doubled 
+```{r}
+inner_join(visit_two_or_more_rows, visit_one_none  ) %>%  View
+```
+
+```{r}
+null <- only_one_none %>%   filter(
+    if_any(
+      all_of(position_cols),
+      ~ sapply(.x, function(x) any(sapply(x, is.null)))
+    )
+  )
+```
+

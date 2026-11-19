@@ -1,0 +1,91 @@
+---
+title: "FTD_v_LBD"
+output: html_document
+date: "2026-09-14"
+---
+question:Can we reproduce what has previously been described
+extraction  -->  select beased on T-task  == spontaneous speech and and feature.names %in% word_type
+this is a continuation of the reproduciblity codes however ss has only 7 combined cases of LBD and FTD and gf has 0 so im trying the picture description task to see if there are more people with ftd or lbd diagnoses
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, varhandle)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+
+#get list of words -> word_type
+```{r}
+word_type <- c( "participant_nouns_freq", "participant_base_verbs_freq", "participant_pasttense_verbs_freq", "participant_gerund_verbs_freq", "participant_pastpart_verbs_freq", "participant_non3rd_verbs_freq", "participant_3rd_verbs_freq", "participant_tos_freq", "participant_adverbs_freq", "participant_adjectives_freq", "participant_modals_freq", "participant_coord_conj_freq", "participant_cardinals_freq", "participant_particles_freq", "participant_personal_pronouns_freq", "participant_wh_adverbs_freq" ,"participant_poss_pronouns_freq", "participant_wh_determiners_freq", "participant_predeterminers_freq", "participant_interjections_freq")
+
+```
+
+#get data set -> ss_word_type
+```{r}
+pi_word_type <- nlp_table %>% 
+  filter(T_Task == "picnic description") %>%
+  filter(feature.name  %in% word_type) %>%
+  filter(!is.na(value)) %>%
+  filter(!is.na(E_Environment)) %>%
+  filter(S_Speaker_identity ==  "combined") %>% 
+  collect %>% 
+  mutate(across(-c(visit_id), ~ as.numeric(.)))
+```
+# get demo -> tbl_demographics
+```{r}
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id,  race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+```
+
+# clean up demo -> demographics 
+```{r}
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) 
+  
+demographics <- demographics %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age)) %>% 
+  select(-c(shape, shape_num, diagnosis, medicaid, ptid))
+```
+
+#pivot wider-> pi_wider
+```{r}
+pi_word_type <- pi_word_type %>% 
+  mutate(new_name =  paste(feature.name, crampingtexs.data, sep ="_" )) %>% 
+  arrange(desc(crampingtexs.data))
+pi_wider <- pi_word_type %>% pivot_wider( id_cols =  c(visit_id ),
+                                         names_from = new_name,
+                                         values_from = value)
+```
+
+#innerjoin on gf wider -> pi_demo 144
+```{r}
+pi_demo <- inner_join(pi_wider, demographics, by =  "visit_id")
+```
+
+#select only LBD and FTD hypothesis 1 ->lbd_ftd 4
+```{r}
+lbd_ftd <- pi_demo %>% 
+  filter(further_diag %in% c("	bvFTD", "LBD")) %>% 
+  #filter(!visit_id == "fb1c473e61-10-1-17") %>% 
+  select(where(~ any(!is.na(.)))) 
+```
+
+```{r}
+colSums(is.na(lbd_ftd))
+rowSums(is.na(lbd_ftd))
+```

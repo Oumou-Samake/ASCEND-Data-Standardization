@@ -1,0 +1,189 @@
+---
+title: "Multi_assess"
+output: html_document
+date: "2026-07-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, dplyr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+### CmaRnoAorMbiPauIidNorGagTpiEclXwxSco 32visits 316 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRnoAorMbiPauIidNorGagTgfErsXwxSco')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+
+```{r}
+colSums(is.na(tbl_assessments)) #nothing is empty
+```
+
+
+### CmaRnoAorMbiPauIidNorGagTgfErsXwxSco--- 27visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRnoAorMbiPauIidNorGagTgfErsXwxSco')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+### CmaRpaAorMbiPauIidNorGagTgfErsXwxSs0 ---20 visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRpaAorMbiPauIidNorGagTgfErsXwxSs0')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+
+
+
+
+
+
+
+
+
+### CmaRpaAorMbiPauIidNorGagTgfErsXwxSs1 ---16 visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRpaAorMbiPauIidNorGagTgfErsXwxSs1')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+### CmaRnoAorMbiPauIidNorGagTpiErsXwxSco ---31 visits 173 variables to use
+
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRnoAorMbiPauIidNorGagTpiErsXwxSco')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+
+
+### CmaRnoAorMbiPauIidNorGagTssErsXwxSco --- 56 visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRnoAorMbiPauIidNorGagTssErsXwxSco')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+### CmaRpaAorMbiPauIidNorGagTssErsXwxSs1 --- 51 visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRpaAorMbiPauIidNorGagTssErsXwxSs1')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+```{r}
+tbl_assessments <- tbl_a %>% 
+  filter_out(if_all(-contains("visit_id"), is.na))
+```
+
+```{r}
+head(tbl_assessments)
+```
+### CmaRpaAorMbiPauIidNorGagTssErsXwxSs0 --- 47 visits 173 variables to use
+```{r}
+tbl_a <- tbl(con,"visits_nlp_tier1") %>%
+  select(contains(c('CmaRpaAorMbiPauIidNorGagTssErsXwxSs0')), visit_id) %>% #participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index
+  collect
+```
+
+### seperate columns
+```{r}
+nlp_table <- tbl(con, "visits_nlp_tier1")
+our.features <- nlp_table %>% select(visit_id, starts_with("nlp_mean_coherence")) %>% select(visit_id, contains("Tpi")) %>%  
+  select(visit_id, contains(c("nlp_mean_coherence_sentence_GloVe", "nlp_mean_coherence_sentence_USE", "sentence_BERT_", "sentence_ELMo" ))) %>% 
+  pivot_longer(starts_with("nlp_mean"), names_to="feature_name", values_to="feature_value") %>% 
+  collect() %>% 
+  separate_wider_regex(feature_name, c("nlp_", feat=".+", "_", "crampingtexs"=".+")) %>% # split out the crampingtexs part of the feature column name 
+  unpack_crampingtexs(crampingtexs)
+```
+### specifing for steves solution
+```{r}
+our.features %>% 
+  filter(!is.na(feature_value) ) %>% 
+  select(feat  = contains(c('participant_wc', 'participant_types','participant_type_token_ratio',  'participant_brunets_index')) )
+```
+Oumou - no idea whats going on here 
+
+### table 1 (?????)
+
+```{r}
+no_id <- assessment_values %>% 
+  select(-c(visit_id))
+```
+
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = middle,
+  type = all_dichotomous() ~ "categorical",
+  statistic = all_categorical() ~ "{n} ({p}%)",
+   missing_text = "Missing Values") %>% 
+  as_gt()
+table_1
+```
+
+```{r}
+gt::gtsave(table_1, filename = "multi_assess_demo.html")
+```
+

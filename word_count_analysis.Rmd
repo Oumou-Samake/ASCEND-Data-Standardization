@@ -1,0 +1,176 @@
+---
+title: "upset_plot"
+output: html_document
+date: "2026-08-31"
+---
+question <- how are the word count different between patients doing the gf task <- across different extraction 
+extraction  --> select beased on T-task  == grand father and adnf feature.name  ==  "word_count" 
+Hypothesis: Then from there split on M- Microphone --> does the microphone change the collection of words (do i have multiple different M values or the same M values )
+Same M values ---> cross visit comparison --> 
+Different M values same visit --> within visit comparison --> 
+
+Conclusion at the moment of this code missing ness is rlated to the overall CRAMPINGTEX Acronym thus now we need a new doc to evaluate this 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, varhandle)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+
+
+##select beased on T-task  == grand father and adnf feature.name  ==  "word_count" -> 233 cases --> add groupby --> only built in mics 
+
+```{r}
+gf_word <- nlp_table %>% 
+  filter(T_Task == "grandfather") %>%
+  filter(feature.name == "participant_wc") %>%
+  filter(!is.na(value)) %>%
+  filter(!is.na(E_Environment)) %>%
+  collect %>% 
+  group_by(visit_id)  
+
+gf_word %>%  count(M_Microphone)
+gf_word %>%  count(visit_id, sort = T)
+```
+
+#Cross Visit comparison 
+```{r}
+gf_word$Enviro_Num <- as.numeric(gf_word$E_Environment)
+cor(gf_word$Enviro_Num, gf_word$value, use = "complete.obs" )
+```
+### cor test
+
+```{r}
+cor.test( gf_word$value, gf_word$Enviro_Num)
+```
+
+
+### boxplot 
+```{r}
+par(pty = "s")
+boxplot(gf_word$value ~gf_word$E_Environment)
+boxplot(gf_word$value ~gf_word$E_Environment,
+        col = c("cyan", "magenta2"),
+        main = "word count v enironment",
+        xlab = "environment", ylab = "words",
+        ylim = c(0, 300))
+```
+
+
+repeat process on "participant_nouns_freq
+#select beased on T-task  == grand father and adnf feature.name  ==  "participant_nouns_freq -> 229cases --> add groupby --> only built in mics 
+
+```{r}
+gf_noun <- nlp_table %>% 
+  filter(T_Task == "grandfather") %>%
+  filter(feature.name == "participant_nouns_freq") %>%
+  filter(!is.na(value)) %>%
+  filter(!is.na(E_Environment)) %>%
+  collect %>% 
+  group_by(visit_id)  
+
+
+gf_noun %>%  count(visit_id, sort = T)
+```
+
+#Cross Visit comparison 
+```{r}
+gf_noun$Enviro_num <- as.numeric(gf_noun$E_Environment)
+cor(gf_noun$value, gf_noun$Enviro_num,  use = "complete.obs" )
+
+
+```
+
+```{r}
+cor.test( gf_noun$Enviro_num , gf_noun$value)
+```
+#statistical analysis of multiple features i.e take word_type columns 
+```{r}
+word_type <- c( "participant_nouns_freq", "participant_base_verbs_freq", "participant_pasttense_verbs_freq", "participant_gerund_verbs_freq", "participant_pastpart_verbs_freq", "participant_non3rd_verbs_freq", "participant_3rd_verbs_freq", "participant_tos_freq", "participant_adverbs_freq", "participant_adjectives_freq", "participant_modals_freq", "participant_coord_conj_freq", "participant_cardinals_freq", "participant_particles_freq", "participant_personal_pronouns_freq", "participant_wh_adverbs_freq" ,"participant_poss_pronouns_freq", "participant_wh_determiners_freq", "participant_predeterminers_freq", "participant_interjections_freq")
+
+```
+
+4578 rows --> 105 visits
+```{r}
+gf_word_type <- nlp_table %>% 
+  filter(T_Task == "grandfather") %>%
+  filter(feature.name  %in% word_type) %>%
+  filter(!is.na(value)) %>%
+  filter(!is.na(E_Environment)) %>%
+  collect %>% 
+  group_by(feature.name)  
+
+gf_word %>%  summary()
+gf_word %>%  count(visit_id, sort = T)
+```
+
+```{r}
+ggplot(gf_word_type, aes(x = reorder(feature.name, value), y = value)) +
+  geom_col() +
+  coord_flip()
+```
+
+```{r}
+
+t.test(value ~ E_Environment, data = gf_word_type)
+```
+# um rewiden vars 
+```{r}
+## new variable 
+word_reduced <- gf_word_type %>% 
+  ungroup() %>% 
+  select(c(crampingtexs.data, visit_id, value ,E_Environment, feature.name))
+```
+
+```{r}
+## column for new variable name 
+word_reduced <- word_reduced %>%  mutate(new_name =  paste(feature.name, crampingtexs.data, sep ="_" )) %>% 
+  arrange(desc(crampingtexs.data))
+```
+
+```{r}
+## remove crampingtexs
+word_reduce <- word_reduced %>% 
+  select(-c(crampingtexs.data, feature.name))
+```
+tis extremely empty
+```{r}
+### new dataframe 
+gf_wide <- word_reduce %>% pivot_wider( id_cols =  c(visit_id,E_Environment ),
+                                         names_from = new_name,
+                                         values_from = value)
+```
+
+
+
+# whats the data set look like now 
+```{r}
+ na_gf <- inspect.na(gf_wide)
+#show_plot(na_gf) + coord_flip()
+
+na_gf %>% extract(col=column_name, 
+                                        into=c("prefix","feature.name","crampingtexs.data"),
+                                        regex="^([^_]+)_(.*)_([^_]+)$",
+                  remove=FALSE
+                                        ) %>% 
+    unpack_crampingtexs(crampingtexs.data) %>%
+    ggplot(aes(y=fct_reorder(feature.name, ratio_of_NA), x=ratio_of_NA)) + geom_col() + facet_wrap(~crampingtexs.data)
+
+```
+
+```{r}
+ inspect.na(gf_wide, hist=TRUE, barplot=FALSE)
+```
+
+```{r}
+colSums(is.na(gf_wide)
+        )
+```
+

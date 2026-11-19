@@ -1,0 +1,101 @@
+---
+title: "PHQ9_amalysis"
+output: html_document
+date: "2026-07-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+```{r}
+### set up assessments
+tbl_diag <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select(contains("phq"), visit_id) %>% 
+  select(-starts_with("self_"), -starts_with("tbi_") , -ends_with("_care"), -starts_with("phq_")) %>% 
+  collect
+### set up demographics
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id, csa_id, race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+### get name of assessments
+diag_name<- data.frame(colnames(tbl_diag))
+
+
+tbl_diag <- tbl_diag%>%
+   mutate(across(-c(visit_id), ~ as.numeric(.))) %>% 
+  filter_out(if_all(starts_with("phq"), is.na))
+```
+### start analysis 
+```{r}
+#lapply(tbl_diag, unique)
+```
+
+### demographics clean up
+```{r}
+# set up/ data cleaning from exp_diag
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age)) %>% 
+  select(-c(ptid, csa_id, shape, shape_num))
+```
+
+### make total column
+```{r}
+calc_total <- tbl_diag %>% 
+   mutate(phqtotal = rowSums(across(c(phqapathy, phqbad, phqconc, phqdown, phqeat, phqmotor, phqsi, phqsleep, phqtired)),  na.rm = T))
+```
+
+### add demographics
+```{r}
+phq <- inner_join(calc_total, demographics, by = "visit_id")%>% 
+  select(-c(diagnosis, medicaid, visit_id )) 
+```
+
+```{r}
+no_id <- phq %>% 
+  select(-c(visit_date, new_id, num_diagnosis))
+```
+
+### demographics table
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = further_diag,
+  type = all_dichotomous() ~ "categorical",
+  statistic = all_categorical() ~ "{n} ({p}%)",
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age = "Age"), 
+            list(gender = "Gender")), 
+            missing_text = "Missing Values"
+) %>%  
+  as_gt()
+```
+
+```{r}
+table_1
+```
+
+
+

@@ -1,0 +1,132 @@
+---
+title: "pi_code_analysis"
+output: html_document
+date: "2026-07-23"
+---
+
+aim --. was looking at picture description task stuff
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+### get picnic task
+```{r}
+raw_pi_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Tpi')), visit_id) %>% 
+  collect
+```
+
+### get pi assessments
+```{r}
+tbl_pi_raw <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select( visit_id, starts_with("picnic")) %>% #, contains(c("grandftr_status"," grandftr_com", "")) 
+  collect
+
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select( visit_id,  race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+```
+
+### clean up demo
+
+```{r}
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age))
+```
+
+
+### rm fully empty fields 
+```{r}
+cleaned_pi <- raw_pi_data %>% 
+  select(visit_id, contains(c( "coherence")) ) %>% 
+  filter_out(if_all(contains('Tpi'), is.na))
+```
+
+### constrained to only comparing the different large langauage models and crampingtexs based on mean_coherence_sentence
+```{r}
+contrained_pi <- cleaned_pi %>% 
+  select(
+         contains(c("nlp_mean_coherence_sentence", "visit_id")),
+         -contains(c('intrawindow_coherence', "Ss1", "Ss2", "Ss0")) ) %>% #, "Ss1", "Ss2"
+  filter_out(if_all(contains('Tpi'), is.na))
+```
+
+```{r}
+contrained_more_pi <- contrained_pi %>% 
+  select(contains(c("CmaRnoAorMbiPauIidNorGag", "visit"))) %>% 
+  filter_out(if_all(contains('Tpi'), is.na))
+```
+
+```{r}
+pi_cols <- data.frame(colSums(is.na(contrained_pi)))
+```
+
+### combine cols
+```{r}
+
+###combining tables 
+
+pi_total <- inner_join(contrained_more_pi, demographics, by = "visit_id")%>% 
+  select(-c(diagnosis, medicaid)) %>% 
+  mutate( 
+    health_status := factor( case_when(
+      further_diag == "HC" ~ "HC",
+      further_diag =="AD" ~ "AD",
+      .default = "other cases"),
+      levels = c("HC", "AD", "other cases" ))
+)
+```
+
+
+### demographics
+```{r}
+no_id <- pi_total %>% 
+  select(-c(visit_id,visit_date, num_diagnosis, new_id,  shape, shape_num)) 
+  
+```
+
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = health_status,
+  type = list(where(is.numeric) ~ "continuous"),
+  list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age_group = "Age"), 
+            list(gender = "Gender"), 
+            list(medicaid = "Medicaid")),
+  missing_text = "Missing Values") %>% 
+  as_gt()
+
+table_1
+```
+
+```{r}
+gt::gtsave(table_1, filename = "pi_demo.html")
+```
+

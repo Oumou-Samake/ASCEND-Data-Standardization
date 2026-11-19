@@ -89,6 +89,19 @@ lapply(check_l, unique)
 
 
 ### rm "88 = Not applicable", and make numeric
+
+
+```{r}
+table_2 <- tbl_summary(
+  moca_l_specialized,
+  include = (-visit_id),
+  type = all_dichotomous() ~ "categorical",
+  statistic = all_categorical() ~ "{n} ({p}%)"
+) %>% 
+  as_gt()
+table_2
+```
+
 ```{r}
 moca_l <- moca_l %>%
   mutate(mocarecc = ifelse(mocarecc ==  "88 = Not applicable", NA, mocarecc),
@@ -98,7 +111,7 @@ moca_l <- moca_l %>%
 ```{r}
 moca_l_compute <- moca_l %>% 
   select(-c(mocareas, mocaloc, mocalan, mocavis, mocahear)) %>% 
-  mutate(across(-visit_id, ~ as.numeric(.)))
+  mutate(across(-c(visit_id), ~ as.numeric(.)))
 ```
 
 ### compare 
@@ -143,11 +156,12 @@ moca_a_demo <- rbind(moca_a, moca_l_specialized)
 
 moca_total <- inner_join(moca_a_demo, demographics, by = "visit_id")%>% 
   select(-c(diagnosis, medicaid)) %>% 
-  mutate(
-    health_status = case_when(
+  mutate( 
+    health_status := factor( case_when(
       further_diag == "HC" ~ "HC",
       further_diag =="AD" ~ "AD",
-      .default = "other cases")
+      .default = "other cases"),
+      levels = c("HC", "AD", "other cases" ))
 )
 moca_total <- moca_total %>%
   mutate(across(-c(visit_id, moca_source, visit_type, visit_date, new_id, further_diag, health_status, eth, race, gender), ~ as.numeric(.)))
@@ -223,12 +237,5 @@ lapply(moca_total, unique)
 no_id.cor
 ```
 
-### subgroup analysis
 
-
-```{r}
-model <- glm(health_status ~ moca_memory,
-             data = no_id,
-             family = binomial)
-```
 

@@ -1,0 +1,170 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+### get spontanious task (don't do this )
+```{r}
+raw_ss_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Tss')), visit_id) %>% 
+  collect
+```
+
+
+### Unpacking a crampingtexs column
+```{r}
+nlp_table <- tbl(con, "visits_nlp_tier1")
+our.features <- nlp_table %>% select(visit_id, starts_with("nlp_mean_coherence")) %>% select(visit_id, contains("Tpi")) %>%  
+  select(visit_id, contains(c("nlp_mean_coherence_sentence_GloVe", "nlp_mean_coherence_sentence_USE", "sentence_BERT_", "sentence_ELMo" ))) %>% 
+  pivot_longer(starts_with("nlp_mean"), names_to="feature_name", values_to="feature_value") %>% 
+  collect() %>% 
+  separate_wider_regex(feature_name, c("nlp_", feat=".+", "_", "crampingtexs"=".+")) %>% # split out the crampingtexs part of the feature column name 
+  unpack_crampingtexs(crampingtexs)
+  
+
+```
+Now let's look at a specific feature:
+
+```{r}
+our.features %>% filter(!is.na(feature_value) & visit_id=="006ee59854-6-29-20" & feat=="mean_coherence_sentence_BERT_interwindow")
+```
+
+So we can see from this that the same original recording has led to three BERT-based sentence coherence scores (mean_coherence_sentence_BERT_interwindow): the metric was computed over the transcript of the entire recording (the row with "none" for R and "combined" for S), as well as once for the parts of the transcript that corresponded to the speech from each of the two speakers the PyAnnote diarizer identified (as per the R value). 
+We don't know which one is the patient and which is the examiner/interlocutor, at least I don't think so.
+
+I think they never did sort out the speaker identities -_-
+
+
+```{r}
+our.features %>% filter(!is.na(feature_value) & S_Speaker_identity == "participant")
+```
+
+```{r}
+our.features %>% filter(!is.na(feature_value) & S_Speaker_identity == "examiner")
+```
+Oumou- I don't really know that if this wide table is supposed to help me with making tables  like should i leave it into 
+
+### see if theres anypoint in the assessments
+```{r}
+our.features %>% filter(!is.na(feature_value) & visit_id == "a523e20896-12-24-22")
+```
+
+
+### get ss assessments
+```{r}
+tbl_ss_raw <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select( visit_id, starts_with("spon")) %>% #, contains(c("grandftr_status"," grandftr_com", "")) 
+  collect
+
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id,  race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+```
+
+### clean up demo
+
+```{r}
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age))
+```
+
+
+### rm fully empty fields 
+```{r}
+cleaned_ss <- raw_ss_data %>% 
+  select(visit_id, contains(c( "coherence")) ) %>% 
+  filter_out(if_all(contains('Tss'), is.na))
+```
+
+### constrained to only comparing the different large langauage models and crampingtexs based on mean_coherence_sentence
+```{r}
+contrained_ss <- cleaned_ss %>% 
+  select(
+         contains(c("nlp_mean_coherence_sentence", "visit_id")),
+         -contains(c('intrawindow_coherence', "Ss1", "Ss2", "Ss0")) ) %>% #, "Ss1", "Ss2"
+  filter_out(if_all(contains('Tss'), is.na))
+```
+
+```{r}
+contrained_more_ss <- contrained_ss %>% 
+  select(contains(c("CmaRnoAorMbiPauIidNorGagTssEclXwx", "visit"))) %>% 
+  filter_out(if_all(contains('Tss'), is.na))
+```
+
+```{r}
+ss_cols <- data.frame(colSums(is.na(contrained_more_ss)))
+```
+
+### combine cols
+```{r}
+
+###combining tables 
+
+ss_total <- inner_join(contrained_more_ss, demographics, by = "visit_id")%>% 
+  select(-c(diagnosis, medicaid)) %>% 
+  mutate( 
+    health_status := factor( case_when(
+      further_diag == "HC" ~ "HC",
+      further_diag =="AD" ~ "AD",
+      .default = "other cases"),
+      levels = c("HC", "AD", "other cases" ))
+)
+```
+
+
+### demographics
+```{r}
+no_id <- ss_total %>% 
+  select(-c(visit_id,visit_date, num_diagnosis, new_id, ptid, shape, shape_num)) 
+  
+```
+
+```{r}
+table_1 <- tbl_summary(
+  no_id,
+  by = health_status,
+  type = list(where(is.numeric) ~ "continuous"),
+  list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+  label = c(list(race = "Race"), 
+            list(eth = "Ethnicity"), 
+            list(age_group = "Age"), 
+            list(gender = "Gender"), 
+            list(medicaid = "Medicaid")),
+  missing_text = "Missing Values") %>% 
+  as_gt()
+
+table_1
+```
+
+```{r}
+gt::gtsave(table_1, filename = "ss_demo.html")
+``` 
+### idk what else to do allot of missing values

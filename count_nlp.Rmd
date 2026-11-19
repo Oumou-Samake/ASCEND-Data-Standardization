@@ -1,0 +1,141 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-07-17"
+---
+ aim ---> look and count the total similarities between each of the assessments and nlp features
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+
+```
+
+
+### get Spontaneous Speech
+
+```{r}
+raw_ss_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Tss')), visit_id) %>% 
+  collect
+
+```
+### get ss assessments
+```{r}
+tbl_ss_raw <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select( visit_id, starts_with("spon")) %>% #, contains(c("grandftr_status"," grandftr_com", "")) 
+  collect
+
+tbl_ss <- tbl_ss_raw %>% 
+  filter_out(if_all(-contains(c('visit_id')), is.na))
+```
+
+### selecting feature: "participant_ums_or_ahs"----> dont have to do this 
+
+```{r}
+um_data <- raw_ss_data %>% 
+  #select(contains("participant_ums_or_ahs")) %>% 
+  filter_out(if_all(-contains(c('visit_id')), is.na))
+```
+
+
+
+```{r}
+check_l <-um_data %>% select(-c(contains("visit_id") ))
+na_table<-data.frame(colSums(is.na(check_l)))
+```
+
+### get Picnic Description
+
+```{r}
+raw_pi_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Tpi')), visit_id) %>% 
+  collect
+```
+### clean up 
+
+```{r}
+pi_data <- raw_pi_data %>% 
+  #select(contains("participant_ums_or_ahs")) %>% 
+  filter_out(if_all(-contains(c('visit_id')), is.na))
+```
+
+### get pi assessments
+```{r}
+tbl_pi_raw <- tbl(con,"visits_assessments") %>% 
+  select(-starts_with("extract")) %>% 
+  select( visit_id, starts_with("picn")) %>% #, contains(c("grandftr_status"," grandftr_com", "")) 
+  collect
+
+tbl_pi<- tbl_pi_raw %>% 
+  filter_out(if_all(-contains(c('visit_id')), is.na))
+```
+
+
+```{r}
+check_l <-um_data %>% select(-c(contains("visit_id") ))
+na_table<-data.frame(colSums(is.na(check_l)))
+```
+
+
+
+
+### get grandfather task
+```{r}
+raw_gf_data<- tbl(con,"visits_nlp_tier1") %>% 
+  select(contains(c('Tgf')), visit_id) %>% 
+  collect
+```
+
+```{r}
+gf_data <- raw_gf_data %>% 
+  #select(contains("participant_ums_or_ahs")) %>% 
+  filter_out(if_all(-contains(c('visit_id')), is.na))
+```
+
+###   differenvt visit_id
+```{r}
+pi_visit <-  pi_data %>% 
+  select(visit_id)
+
+ss_visit <- um_data %>% 
+  select(visit_id)
+
+gf_visit <- gf_data %>% 
+  select(visit_id)
+
+ss_assess_visit <- tbl_ss %>% 
+  select(visit_id)
+
+pi_assess_visit <- tbl_pi %>% 
+  select(visit_id)
+```
+
+### diff statements 
+```{r}
+setdiff(pi_visit, ss_visit)
+```
+
+```{r}
+setdiff(gf_visit, ss_visit)
+```
+
+```{r}
+setdiff(pi_visit, gf_visit)
+```
+
+### diff between assessments
+```{r}
+setdiff(pi_assess_visit, pi_visit)
+```
+
+```{r}
+setdiff(ss_assess_visit, ss_visit)
+```
+

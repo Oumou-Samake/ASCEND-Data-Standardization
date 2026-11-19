@@ -38,7 +38,7 @@ extract_unique_id <- function(dataframe, col){
   }
 
 ### enumate functions
-replace_gender <- function(dataframe, col) {
+replace_gender_peter <- function(dataframe, col) {
   dataframe %>%
     mutate(
       {{ col }} := case_when(
@@ -50,7 +50,7 @@ replace_gender <- function(dataframe, col) {
     )
 }
 
-replace_race <- function(dataframe, col) {
+replace_race_peter <- function(dataframe, col) {
   dataframe %>%
     mutate({{ col }} := case_when(
       {{ col }}  %in% c("White or Caucasian", "White")  ~ "1",
@@ -64,7 +64,7 @@ replace_race <- function(dataframe, col) {
   # missing "More Than One Race"
 }
 
-replace_eth <- function(dataframe, col) {
+replace_eth_peter <- function(dataframe, col) {
   dataframe %>%
     mutate(
       {{ col }} := case_when(
@@ -74,7 +74,7 @@ replace_eth <- function(dataframe, col) {
       ))
 }
 
-replace_medicaid <- function(dataframe, col) {
+replace_medicaid_peter <- function(dataframe, col) {
   dataframe %>%
     mutate(
       {{ col }} := case_when(
@@ -216,3 +216,174 @@ age_range <- function(dataframe, col) {
   ))
 }
 
+replace_gender <- function(dataframe, col) {
+  dataframe %>%
+    mutate(
+      {{ col }} := factor(
+        case_when(
+          is.na({{ col }}) ~ NA_character_,
+          {{ col }} %in% c("F", "Female") ~ "Female",
+          {{ col }} %in% c("M", "Male") ~ "Male",
+          TRUE ~ NA_character_
+        ),
+        levels = c("Female", "Male")
+      )
+    )
+}
+
+replace_race <- function(dataframe, col) {
+  dataframe %>%
+    mutate({{ col }} := factor(
+      case_when(
+      {{ col }}  %in% c("White or Caucasian", "White")  ~ "White",
+      {{ col }} == "Black or African American" ~ "Black",
+      {{ col }} == "American Indian and Alaska Native" ~ "American Indian and Alaska Native",
+      {{ col }} == "Asian" ~"Asian",
+      {{ col }}  %in% c("Native Hawaiian and Other Pacific Islander", "Other Pacific Islander") ~ "Native Hawaiian and Other Pacific Islander",
+      {{ col }} == "Other"  ~ "Other",
+      {{ col }}  %in% c( NA, "Unknown", "Patient Refused")  ~ "Missing Value"
+    ),
+    levels = c("White", "Black","American Indian and Alaska Native","Asian","Native Hawaiian and Other Pacific Islander", "Other","Missing Value" )))
+  # missing "More Than One Race"
+}
+
+replace_eth <- function(dataframe, col) {
+  dataframe %>%
+    mutate(
+      {{ col }} := factor( case_when(
+        {{ col }} == "Non-Hispanic [1]"  ~ "Non-Hispanic",
+        {{ col }} == "Hispanic [2]" ~ "Hispanic",
+        {{ col }} %in% c( NA, "Unknown [3]",  "Patient Refused [4]")  ~ "Missing Value"
+      ),
+      levels = c("Non-Hispanic", "Hispanic", "Missing Value" )))}
+
+replace_medicaid <- function(dataframe, col) {
+  dataframe %>%
+    mutate(
+      {{ col }} := factor( case_when(
+        {{ col }} %in% c( NA, "Not on file") ~"Missing Value",
+        {{ col }} == "No" ~ "No",
+        {{ col }} == "Yes" ~"Yes"
+      ),
+      levels = c("No", "Yes", "Missing Value" )))}
+
+unpack_crampingtexs <- function(input_df, crampingtexs_col_name) {
+  # Three steps to unpacking this dense column:
+  # 1. separate into new columns, keeping around the original column
+  # 2. recode to human-readable labels
+  # 3. turn into factors
+  
+  {{input_df}} %>% separate_wider_position({{crampingtexs_col_name}}, 
+                                       c(
+                                         C_Computer=3, 
+                                         R_Diarization=3, 
+                                         A_Anonymization=3, 
+                                         M_Microphone=3, 
+                                         P_Program=3, 
+                                         I_Identification_stage=3, 
+                                         N_Noise_reduction=3, 
+                                         G_Granularity=3,
+                                         T_Task=3, 
+                                         E_Environment=3, 
+                                         X_Extraction_toolkit=3, 
+                                         S_Speaker_identity=3
+                                       ),
+                                       cols_remove=FALSE # keep the original crampingtexs column around in case we need it for joining, comparing, etc.
+  ) %>% 
+    mutate(
+      C_Computer = case_when(
+      C_Computer == 'Cma' ~ "MAC",
+      C_Computer == 'Cpc' ~ "PC",
+      C_Computer == 'Cuk' ~ "Unknown"
+      ),
+      R_Diarization = case_when(
+      R_Diarization == 'Rno' ~ "none",
+      R_Diarization == 'Rpa' ~ "pyannote",
+      R_Diarization == 'Rdl' ~ "DiarizationLM",
+      R_Diarization == 'Rgs' ~ "gold standard"
+      ),
+      A_Anonymization = case_when(
+      A_Anonymization == 'Aor' ~ "original"
+      ),
+      M_Microphone = case_when(
+      M_Microphone == 'Mlv' ~ "lavalier",
+      M_Microphone == 'Mbi' ~ "built-in"
+      ),
+      P_Program= case_when(
+      P_Program == 'Pau' ~ "Audacity",
+      P_Program == 'Pav' ~ "Avid",
+      P_Program == 'Puk' ~ "unknown"
+      ),
+      I_Identification_stage = case_when(
+      I_Identification_stage == 'Iid' ~ "identified"
+      ),
+      N_Noise_reduction = case_when(
+      N_Noise_reduction == 'Nor' ~ "none/original",
+      N_Noise_reduction == 'Npi' ~ "Python denoised"
+      ),
+      G_Granularity = case_when(
+      G_Granularity == 'Gag' ~ "none/original",
+      G_Granularity %in%  c('Gtr', "Gwi", "Gfr") ~ "reserved"
+      ),
+      T_Task = case_when(
+      T_Task == 'Tgf' ~ "grandfather",
+      T_Task == 'Tss' ~ "spontaneous speech",
+      T_Task == 'Tpi' ~ "picnic description",
+      T_Task == 'Tcv' ~ "conflict conversation",
+      T_Task == 'Tme' ~ "motor speech evaluation",
+      T_Task == 'Tuk' ~ "unknown"
+      ),
+      E_Environment= case_when(
+      E_Environment == 'Ecl' ~ "clinical",
+      E_Environment == 'Ers' ~ "research",
+      E_Environment == 'Eli' ~ "LIIA"
+      ),
+      X_Extraction_toolkit = case_when(
+      X_Extraction_toolkit == 'Xcp' ~ "ComParE",
+      X_Extraction_toolkit == 'Xeg' ~ "eGeMAPS",
+      X_Extraction_toolkit == 'Xpm' ~ "Parselmouth",
+      X_Extraction_toolkit == 'Xwx' ~ "WhisperX",
+      X_Extraction_toolkit == 'Xli' ~ "Librosa"
+      ),
+      S_Speaker_identity = case_when( 
+        # SB note: Oumou, this is what you'd had; it doesn't align with what I'm seeing in the data so let's discuss
+        # S_Speaker_identity == 'Sco' ~ "combined",
+        # S_Speaker_identity == 'Ss' ~ "arbitrary diarization labels",
+        # S_Speaker_identity == 'Sex' ~ "examiner",
+        # S_Speaker_identity == 'Spt' ~ "participant",
+        # S_Speaker_identity == 'Suk' ~ "unknown"
+      S_Speaker_identity == "Sco" ~ "combined", # computed from entire recording, irrespective of which speaker was talking
+      S_Speaker_identity == "Ss0" ~ "speaker_0", # computed from the portions of audio originating with the first speaker identified by the diarizer
+      S_Speaker_identity == "Ss1" ~ "speaker_1", # computed from the _second_ speaker
+      S_Speaker_identity == "Ss2" ~ "speaker_2", # third speaker
+      S_Speaker_identity == "Ss3" ~ "speaker_3", # fourth speaker
+      S_Speaker_identity == "Sex" ~ "examiner", # examiner speech
+      S_Speaker_identity == "Spt" ~ "participant", # participant speech
+      S_Speaker_identity == "Suk" ~ "unknown", # participant speech
+      )) %>% 
+    mutate(across(c(C_Computer, 
+                    R_Diarization, 
+                    A_Anonymization, 
+                    M_Microphone, 
+                    P_Program, 
+                    I_Identification_stage, 
+                    N_Noise_reduction,
+                    G_Granularity,
+                    T_Task,
+                    E_Environment,
+                    X_Extraction_toolkit,
+                    S_Speaker_identity
+    ), factor)) # turn into factors
+  
+}
+
+new_duck_db <- function(nlp_table){
+  nlp_pivoted <- {{ nlp_table }} %>% 
+    collect %>% 
+    pivot_longer(starts_with('nlp_'), names_to="raw.colname", values_to="value")
+  nlp_unpacked <- nlp_pivoted %>% extract(col=raw.colname, 
+                                        into=c("prefix","feature.name","crampingtexs.data"),
+                                        regex="^([^_]+)_(.*)_([^_]+)$"
+                                        ) %>% 
+    unpack_crampingtexs(crampingtexs.data)
+  dbWriteTable(con, "visits_nlp_tier1_pivoted_unpacked", nlp_unpacked)}

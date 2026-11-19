@@ -1,0 +1,91 @@
+---
+title: "Reproducablity_attempt_1"
+output: html_document
+date: "2026-09-10"
+---
+question <- Can we reproduce what has previously been described
+extraction  -->  select beased on T-task  == grand father and and feature.names %in% word_type
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, varhandle)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+
+#get list of words -> word_type
+```{r}
+word_type <- c( "participant_nouns_freq", "participant_base_verbs_freq", "participant_pasttense_verbs_freq", "participant_gerund_verbs_freq", "participant_pastpart_verbs_freq", "participant_non3rd_verbs_freq", "participant_3rd_verbs_freq", "participant_tos_freq", "participant_adverbs_freq", "participant_adjectives_freq", "participant_modals_freq", "participant_coord_conj_freq", "participant_cardinals_freq", "participant_particles_freq", "participant_personal_pronouns_freq", "participant_wh_adverbs_freq" ,"participant_poss_pronouns_freq", "participant_wh_determiners_freq", "participant_predeterminers_freq", "participant_interjections_freq")
+
+```
+
+#get data set -> gf_word_type
+```{r}
+gf_word_type <- nlp_table %>% 
+  filter(T_Task == "grandfather") %>%
+  filter(feature.name  %in% word_type) %>%
+  filter(!is.na(value)) %>%
+  filter(!is.na(E_Environment)) %>%
+  collect %>% 
+  group_by(feature.name)  
+```
+# get demo -> tbl_demographics
+```{r}
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id,  race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+```
+
+# clean up demo -> demographics 
+```{r}
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) 
+  
+demographics <- demographics %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age)) %>% 
+  select(-c(shape, shape_num, diagnosis, medicaid, ptid))
+```
+
+#pivot wider-> gf_wider
+```{r}
+gf_word_type <- gf_word_type %>% 
+  mutate(new_name =  paste(feature.name, crampingtexs.data, sep ="_" )) %>% 
+  arrange(desc(crampingtexs.data))
+gf_wider <- gf_word_type %>% pivot_wider( id_cols =  c(visit_id ),
+                                         names_from = new_name,
+                                         values_from = value)
+```
+
+#innerjoin on gf wider -> gf_demo
+```{r}
+gf_demo <- inner_join(gf_wider, demographics, by =  "visit_id")
+```
+
+
+this can not be continued as this only has HC controls and exception cases 
+
+#select only AD and MCI hypothesis 1 -> ad_mci 85
+```{r}
+lbd_ftd <- gf_demo %>% 
+  filter(further_diag %in% c("	bvFTD", "LBD")) %>% 
+  #filter(!visit_id == "fb1c473e61-10-1-17") %>% 
+  select(where(~ any(!is.na(.)))) 
+  
+  
+```

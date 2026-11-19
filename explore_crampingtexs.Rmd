@@ -1,0 +1,89 @@
+---
+title: "CRAMPINGTEX_review"
+output: html_document
+date: "2026-09-03"
+---
+Is  the crampingtex the definitive measure of missingness ->
+1. Chose a crampingtex 
+2. extract
+3. data clean 
+4. pivotwider
+5. from there compare the missingness across words
+    is the missingness values the same
+    are the same columns empty 
+    
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, varhandle)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+
+#1. Chose a crampingtex -> CmaRpaAorMbiPauIidNorGagTgfErsXwxSs1 / 2. extract
+```{r}
+cramp_chosen <- nlp_table %>%   
+  filter(crampingtexs.data =="CmaRpaAorMbiPauIidNorGagTgfErsXwxSs1") %>%
+  filter(!is.na(value)) %>%
+  collect()
+  
+```
+# 3. data clean 
+```{r}
+cramp_clean <- cramp_chosen %>% 
+  ungroup() %>% 
+  select(c(crampingtexs.data, visit_id, value , feature.name))
+```
+
+```{r}
+cramp_clean <- cramp_clean %>%  mutate(new_name =  paste(feature.name, crampingtexs.data, sep ="_" )) %>% 
+  arrange(desc(crampingtexs.data))
+```
+
+```{r}
+## remove crampingtexs
+cramp_cleaned <- cramp_clean%>% 
+  select(-c(crampingtexs.data, feature.name))
+```
+
+# 4. pivotwider
+```{r}
+### new dataframe 
+wide_cramp <- cramp_cleaned %>% pivot_wider( id_cols =  c(visit_id ),
+                                         names_from = new_name,
+                                         values_from = value)
+```
+#5. from there compare the missingness across words theres missingness however is it the same row/s thats causing missingness
+```{r}
+colSums(is.na(wide_cramp) 
+        ) 
+```
+
+
+```{r}
+ rowSums(is.na(wide_cramp)) 
+```
+
+#6 ignore the prenious stuff  how many grouping variables are there in theory 
+```{r}
+cramp_to_count <- nlp_table %>%   
+  #filter(crampingtexs.data =="CmaRpaAorMbiPauIidNorGagTgfErsXwxSs1") %>%
+  filter(!is.na(value)) %>%
+  collect()
+```
+
+```{r}
+cramp_to_count %>% 
+  group_by(crampingtexs.data) %>% 
+  summarise(unique_feat = n_distinct(feature.name, na.rm = TRUE)) %>% 
+  arrange(desc(unique_feat))
+```
+
+```{r}
+unique(cramp_to_count$feature.name, na.rm = TRUE)
+```
+

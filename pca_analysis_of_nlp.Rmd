@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+Aim --- >seperate features by task-specific, syntatic,  paralinguistic, semantic and then  create a comparative table based on this information  
+#did not work -_-
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, pcaMethods)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+### pivot longer a table 
+```{r}
+ nlp_pivoted <- nlp_table %>% 
+    collect %>% 
+    pivot_longer(starts_with('nlp_'), names_to="raw.colname", values_to="value")
+
+```
+ 
+### remove the NAs
+```{r}
+nlp_tab<- nlp_pivoted %>% 
+  filter(!is.na(value))
+```
+
+### add the diagnosis 
+
+```{r}
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select( visit_id, race, eth, age, gender, medicaid, diagnosis) %>%
+  collect 
+```
+###n clean up diag 
+```{r}
+demographics <- tbl_demographics %>% 
+  replace_gender(gender)%>%
+  replace_race(race) %>%
+  replace_eth(eth) %>% 
+  extract_unique_id(visit_id) %>%
+  replace_medicaid(medicaid) %>%
+  further_diagnosis(diagnosis) %>%
+  enumerate_diagnosis(further_diag) %>% 
+  fill_in(gender, new_id) %>% 
+  fill_in(eth, new_id) %>% 
+  fill_in(race, new_id) %>% 
+  fill_in(medicaid, new_id) %>% 
+  mutate(age  = as.integer(age))%>% 
+  select(-c(shape, num_diagnosis, new_id))
+```
+
+
+
+## figured out what the various tasks are 
+### task specific  ---> maybe from the  assessment duck db 
+```{r}
+(participant_type_token_ratio, specificity_exact_dates, specificity_vague_temporal, specificity_location_count, specificity_vague_locations )
+
+#this seems 
+```
+
+### syntatic---> ums ahs gaps fluency
+
+```{r}
+(participant_nouns_freq, participant_base_verbs_freq, participant_pasttense_verbs_freq, participant_gerund_verbs_freq, participant_pastpart_verbs_freq, participant_non3rd_verbs_freq, participant_3rd_verbs_freq, participant_tos_freq, participant_adverbs_freq, participant_adjectives_freq, participant_modals_freq, participant_coord_conj_freq, participant_cardinals_freq, participant_particles_freq, participant_personal_pronouns_freq, participant_wh_adverbs_freq ,participant_poss_pronouns_freq, participant_wh_determiners_freq , participant_predeterminers_freq, participant_interjections_freq, participant_existential_there_freq, participant_wh_pronouns_freq, participant_TOTAL_verb_freq,  participant_ums_or_ahs_freq,participant_determiners_freq, participant_prepositions_freq, participant_ums_or_ahs_count, participant_wc)
+```
+
+### paralinguistic ---> aucoustic parts of speech
+```{r}
+( )
+```
+tone ???? participant_mean_sentiment, participant_max_sentiment, participant_min_sentiment, participant_stdv_sentiment
+### semantic --->  sentence complexity and repetition
+```{r}
+( 	participant_brunets_index, 
+ participant_content_density)
+```
+
+
+
+
+## with that data what should I do???
+## set up for clustering by the syntactic and semantic
+### normalize
+```{r}
+nlp_new_rows <- nlp_tab %>% 
+  mutate(feature_type:= factor( case_when(
+    str_detect( raw.colname, "freq") ~ "syntactic",
+    str_detect( raw.colname, "count") ~ "syntactic",
+    str_detect(raw.colname, "tangentiality") ~ "semantic",
+    str_detect( raw.colname, "coherence") ~ "semantic",
+    .default = "other"),
+    levels = c("syntactic", "semantic", "other" ))) %>% 
+  filter(feature_type !=  "other") %>% 
+  group_by(raw.colname) %>%
+  mutate(
+    norm_val = case_when(length(unique(value)) ==1 ~ value, .default= as.vector(scale(value))))
+
+
+```
+
+```{r}
+colSums(is.na(nlp_tab))
+
+unique(nlp_tab$raw.colname)
+```
+
+
+### innerjoin from here 
+```{r}
+nlp_demo <- nlp_new_rows %>% 
+  inner_join(demographics, by = "visit_id") 
+```
+## feature editting 
+###pivot wider the features 
+```{r}
+ nlp_new_rows <-  nlp_new_rows %>% 
+  select(norm_val, raw.colname, visit_id)
+```
+
+```{r}
+nlp_new_rows%>% ungroup %>% 
+  mutate(has_data=case_when(is.na(norm_val) ~ "missing", TRUE ~ "present")) %>% 
+  group_by(raw.colname, has_data) %>% filter(has_data=="missing") %>% 
+  summarise(n=n()) %>% arrange(-n)
+
+nlp_new_rows %>% ungroup %>% group_by(visit_id) %>% summarise(n=n())
+
+
+
+# %>% filter(grepl())# forgot what i was doing here 
+
+nlp_new_rows %>% pivot_wider(names_from=raw.colname, values_from=norm_val)
+```
+
+
+### remove columns based on variance 
+```{r}
+
+pca_nlp <-  nlp_new_rows %>% 
+  pivot_wider(names_from=raw.colname, values_from=norm_val) %>% 
+  select(-c(visit_id)) %>% 
+  select(where(~n_distinct(.) > 1))
+
+
+pca_nlp <- pca_nlp[, names(pca_nlp) != "NA"]
+#names(pca_nlp)
+```
+
+
+
+### check again 
+
+```{r}
+zero_var_col <- apply(pca_nlp, 2, var, na.rm = TRUE) == 0
+names(pca_nlp)[zero_var_col]
+
+```
+
+
+### PCA
+```{r}
+my_pca <- prcomp(pca_nlp, scale. = TRUE, center = TRUE, retx = TRUE)
+```
+
+### understand PCA
+```{r}
+summary(my_pca)
+```
+

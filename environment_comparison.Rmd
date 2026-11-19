@@ -1,0 +1,45 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("duckdb")
+library("dplyr")
+library("pacman")
+pacman::p_load(stringr, tidyverse, gtsummary, ggplot2, GGally, vtable, grid, gridExtra, diffdf, corrplot, broom, purrr, varhandle)
+source("replace_chunk.R")
+peter_file <- "C:/Users/samake/OneDrive - Oregon Health & Science University/AD and DS Project/csand_data.duckdb/csand_data.duckdb"
+con <- dbConnect(duckdb(peter_file))
+nlp_table<-tbl(con, "visits_nlp_tier1_pivoted_unpacked")
+```
+
+
+# get demo -> tbl_demographics
+```{r}
+tbl_demographics <- tbl(con,"visits_core") %>% 
+  select(ptid, visit_id,  race, eth, age, gender, visit_type, visit_date, medicaid, diagnosis) %>%
+  collect 
+```
+
+# ATTEMPT TO COMPARE ENVIRONMENT TO VISITTYPE
+```{r}
+visitype <- tbl_demographics %>% 
+  select(visit_id, visit_type)
+
+environmen <- nlp_table %>% 
+  select(visit_id, E_Environment) 
+
+environmen <- data.frame(environmen) %>% 
+  distinct(visit_id, .keep_all = TRUE)
+
+```
+
+```{r}
+full_join(visitype,environmen,by=c('visit_id')) %>%
+  mutate(need = case_when(is.na(visit_type) ~ 'only_visitype', 
+                          is.na(E_Environment) ~ 'only_environmen', 
+                          TRUE ~ 'duplicated')) %>% 
+  filter(need !='duplicated') %>% 
+  View
